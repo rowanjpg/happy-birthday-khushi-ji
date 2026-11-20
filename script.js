@@ -205,15 +205,16 @@
     songToggle.innerHTML = '<span aria-hidden="true">▶</span>';
   };
   const updateSongMetadata = () => {
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      songDuration.textContent = songClock(audio.duration);
-      songProgress.disabled = false;
-    }
+    const hasDuration = Number.isFinite(audio.duration) && audio.duration > 0;
+    songDuration.textContent = hasDuration ? songClock(audio.duration) : '—:—';
+    songProgress.disabled = !hasDuration;
     paintSongProgress();
   };
 
   ['loadedmetadata', 'durationchange', 'canplay'].forEach((eventName) => audio.addEventListener(eventName, updateSongMetadata));
   audio.addEventListener('timeupdate', paintSongProgress);
+  audio.addEventListener('seeking', paintSongProgress);
+  audio.addEventListener('seeked', paintSongProgress);
   audio.addEventListener('play', () => {
     updateSongMetadata();
     songStatus.textContent = 'Playing';
@@ -237,6 +238,10 @@
     songStatus.textContent = 'Audio unavailable. Try refreshing the page.';
     songDuration.textContent = '—:—';
     songProgress.disabled = true;
+    songProgress.value = '0';
+    songProgress.style.setProperty('--played', '0%');
+    songCurrent.textContent = '0:00';
+    songProgress.setAttribute('aria-valuetext', '0:00 of 0:00');
   });
 
   songToggle.addEventListener('click', async () => {
@@ -256,8 +261,24 @@
   });
   songProgress.addEventListener('input', () => {
     if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
-    audio.currentTime = (Number(songProgress.value) / 100) * audio.duration;
+    // Update the preview immediately; the actual media position is committed
+    // on change so dragging does not trigger dozens of seeks per second.
+    const ratio = Math.min(100, Math.max(0, Number(songProgress.value)));
+    songProgress.style.setProperty('--played', `${ratio}%`);
+    songCurrent.textContent = songClock((ratio / 100) * audio.duration);
+    songProgress.setAttribute(
+      'aria-valuetext',
+      `${songClock((ratio / 100) * audio.duration)} of ${songClock(audio.duration)}`
+    );
+  });
+  songProgress.addEventListener('change', () => {
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    const ratio = Math.min(100, Math.max(0, Number(songProgress.value)));
+    audio.currentTime = (ratio / 100) * audio.duration;
     paintSongProgress();
   });
-  paintSongProgress();
+
+  // Metadata can already be cached before these listeners are attached.
+  // Read the current media state as well as listening for future events.
+  updateSongMetadata();
 })();
